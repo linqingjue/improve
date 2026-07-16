@@ -1,6 +1,6 @@
 {
   "name": "improve",
-  "description": "Point it at a codebase and it figures out what's worth doing — bugs, perf, tech debt, what to build next — then writes plans any agent can execute. It can hand the work to a cheaper model and review the result. It never edits your code.",
+  "description": "将它指向任意代码库，它会判断哪些工作最值得做——包括缺陷、性能、技术债务以及下一步功能方向——并编写任何代理都能执行的实施计划。它还可以把执行工作交给成本更低的模型，并审查执行结果。它绝不会直接修改你的代码。",
   "version": "1.0.0",
   "author": {
     "name": "shadcn",
