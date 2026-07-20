@@ -1,96 +1,93 @@
-# Closing the Loop — execute, reconcile, issues
+# 完成闭环——execute、reconcile、issues
 
-The advisor's job doesn't end at the plan. This file covers the three follow-through flows: dispatching an executor and reviewing its work (`execute`), keeping the plan backlog alive (`reconcile`), and publishing plans where work gets picked up (`--issues`).
+顾问的工作不会在写完计划时结束。本文件说明三个后续流程：派发执行代理并审查其工作（`execute`）、持续维护计划积压（`reconcile`），以及把计划发布到实际接单的位置（`--issues`）。
 
-The founding rule survives unchanged: **the advisor never edits source code.** In `execute`, a *separate executor subagent* edits code in an isolated git worktree; the advisor dispatches, reviews, and renders a verdict — like a tech lead who doesn't push commits to your branch.
+最初的原则始终不变：**顾问绝不编辑源代码。** 在 `execute` 中，由一个*独立的执行子代理*在隔离的 Git worktree 中编辑代码；顾问负责派发、审查并给出结论，就像一名不会直接向用户分支推送提交的技术负责人。
 
 ---
 
-## `execute <plan>` — dispatch and review
+## `execute <plan>`——派发与审查
 
-### Preconditions (check all before dispatching)
+### 前置条件（派发前全部检查）
 
-- The repo is a git repository (worktree isolation requires it). If not: stop and say so.
-- The plan file exists and its dependencies show DONE in `plans/README.md`. If not: stop, name the missing dependency.
-- Run the plan's drift check yourself. If in-scope files changed since `Planned at`, reconcile the plan first (see below) — don't hand a stale plan to an executor.
+- 仓库必须是 Git 仓库，因为 worktree 隔离依赖 Git。否则停止并明确说明。
+- 计划文件必须存在，且其依赖项在 `plans/README.md` 中均显示为 DONE。否则停止，并指出缺少的依赖。
+- 顾问必须亲自运行计划的漂移检查。如果范围内文件自 `Planned at` 记录的提交后发生变化，应先协调更新计划（见下文），不要把过时计划交给执行代理。
 
-### Dispatch
+### 派发
 
-Spawn **one** `general-purpose` subagent with `isolation: "worktree"`. Executor model: default `sonnet`; use what the user named if they named one (`execute 003 haiku`).
+启动**一个** `general-purpose` 子代理，并设置 `isolation: "worktree"`。执行模型默认使用 `sonnet`；如果用户明确指定了模型，例如 `execute 003 haiku`，则使用用户指定的模型。
 
-The subagent prompt must contain:
+子代理提示词必须包含：
 
-1. **The full plan file text, inlined.** The worktree contains only committed files — if `plans/` is uncommitted, the executor can't read it. Never assume; always inline.
-2. The executor preamble:
+1. **完整计划文件正文，直接内嵌。** worktree 只包含已经提交的文件；如果 `plans/` 尚未提交，执行代理无法读取。不得假设计划可见，必须始终内嵌全文。
+2. 以下执行代理前言：
 
-> You are the executor for the implementation plan below. Follow it step by
-> step. Run every verification command and confirm the expected result before
-> moving on. Touch only the files listed as in scope. If any STOP condition
-> occurs, stop immediately and report. Do not improvise around obstacles.
-> Commit your work in the worktree following the plan's git workflow section.
-> One override: SKIP the plan's instruction to update `plans/README.md` —
-> your reviewer maintains the index. Before reporting, audit every claim in
-> your report against an actual tool result from this session — only report
-> what you can point to evidence for; if a verification failed or was
-> skipped, say so plainly. When finished, reply with exactly the report
-> format below.
+> 你是下方实施计划的执行代理。必须逐步遵循计划。执行每条验证命令，
+> 并在进入下一步前确认结果符合预期。只能修改范围内列出的文件。
+> 如果触发任何 STOP 条件，立即停止并报告，不得自行绕过障碍。
+> 按照计划的 Git 工作流章节，在 worktree 中提交你的工作。
+> 有一项覆盖规则：跳过计划中要求更新 `plans/README.md` 的步骤，
+> 因为索引由审查者维护。报告前，必须把报告中的每一项声明与本次会话
+> 真实工具结果逐一核对；只能报告有证据支持的内容。如果某项验证失败或
+> 被跳过，必须直接说明。完成后严格使用下方格式回复。
 
-3. The report format:
+3. 以下报告格式。字段名和状态值必须保持不变，便于审查者稳定识别：
 
 ```
 STATUS: COMPLETE | STOPPED
-STEPS: per step — done/skipped + verification command result
-STOPPED BECAUSE: (only if STOPPED) which STOP condition, what was observed
-FILES CHANGED: list
-NOTES: anything the reviewer should know (deviations, surprises, judgment calls)
+STEPS: 按步骤列出——已完成/已跳过 + 验证命令结果
+STOPPED BECAUSE: （仅 STOPPED 时填写）触发了哪个 STOP 条件，观察到了什么
+FILES CHANGED: 文件列表
+NOTES: 审查者需要知道的其他内容（偏差、意外情况、判断取舍）
 ```
 
-### Review (the advisor's real job here)
+### 审查（顾问在这里的核心职责）
 
-Note on fresh worktrees: they share git history but not `node_modules` or build artifacts — the executor must install dependencies first, and check tooling that resolves from `dist/` may need one build even though the plan's command table (recon'd in the main tree) didn't mention it. Expect this; it isn't a deviation.
+关于新 worktree：它共享 Git 历史，但不共享 `node_modules` 或构建产物。执行代理必须先安装依赖；某些从 `dist/` 解析工具的检查命令，可能还需要先构建一次，即使勘察阶段生成的计划命令表中没有写明。这属于隔离环境的正常差异，不应自动判定为违规。
 
-Review like a tech lead reviewing a PR against the spec — never fix anything yourself:
+必须像技术负责人依据规格审查 PR 一样审查，不得亲自修复：
 
-1. **Re-run every done criterion** in the worktree. Don't trust the executor's report — verify.
-2. **Scope compliance**: `git -C <worktree> diff --stat` against the plan's in-scope list. Any file outside scope fails review, full stop.
-3. **Read the full diff.** Judge it against "Why this matters" (does it solve the actual problem?) and the repo conventions named in the plan (does it look like the rest of the codebase?).
-4. **Audit the new tests.** Executors game criteria — a test that asserts nothing meaningful passes `pnpm test` and proves nothing. Read what the tests assert.
+1. **在 worktree 中重新运行每一条完成标准。** 不要相信执行代理报告，必须亲自验证。
+2. **检查范围合规性：**对照计划范围执行 `git -C <worktree> diff --stat`。只要出现范围外文件，就判定审查失败。
+3. **阅读完整差异。** 对照“为什么重要”判断是否真正解决问题，并检查是否遵循计划中列出的仓库约定。
+4. **审查新增测试。** 执行代理可能用没有实际断言的测试满足 `pnpm test`；必须阅读测试到底验证了什么。
 
-### Verdict
+### 结论
 
-**Documented deviations are judged on merit, not reflex-blocked.** "Do not improvise" exists to stop silent drift; an executor that hits a real obstacle (e.g. the plan's approach breaks existing test mocks), adapts minimally, and explains it in NOTES has done the right thing. Approve it if the adaptation serves the plan's intent and stays in scope; treat *undocumented* deviations as review failures.
+**有文档说明的偏差应根据实际价值判断，而不是机械阻塞。** “不得自行发挥”的目的，是阻止静默偏离。如果执行代理遇到真实障碍，例如计划方法破坏现有测试 mock，并采取最小适配且在 NOTES 中说明，这可能是正确做法。只要适配符合计划意图且没有超出范围，可以批准；未经说明的偏差才属于审查失败。
 
-| Verdict | When | Action |
+| 结论 | 适用情况 | 动作 |
 |---|---|---|
-| **APPROVE** | Criteria pass, scope clean, quality holds | Update index status to DONE. Present to the user: diff summary, worktree path and branch, anything from NOTES. **Merging is the user's decision — never merge, push, or commit to their branch.** |
-| **REVISE** | Fixable gaps | SendMessage to the same executor with specific, actionable feedback ("criterion 3 fails: X; the error handling in `api.ts:90` swallows the error — use the Result pattern per the plan"). **Max 2 revision rounds**, then BLOCK. |
-| **BLOCK** | STOP condition hit, scope violated unrecoverably, or revisions exhausted | Mark BLOCKED in the index with the reason. Refine or rewrite the plan with what was learned. Tell the user what happened and what changed in the plan. |
+| **APPROVE** | 所有标准通过、范围干净、质量达标 | 把索引状态更新为 DONE。向用户展示差异摘要、worktree 路径与分支，以及 NOTES 中的重要内容。**是否合并由用户决定；绝不自行合并、推送或提交到用户分支。** |
+| **REVISE** | 存在可以修复的缺口 | 通过 SendMessage 向同一个执行代理发送具体、可操作的反馈，例如：“标准 3 失败：X；`api.ts:90` 的错误处理吞掉了异常，请按计划中的 Result 模式处理。”**最多两轮修改**，之后必须转为 BLOCK。 |
+| **BLOCK** | 触发 STOP 条件、出现无法恢复的范围违规，或修改轮次耗尽 | 在索引中标记 BLOCKED 并写明原因。根据新信息完善或重写计划，并告诉用户发生了什么以及计划如何调整。 |
 
-Running verification commands inside the executor's worktree is fine — it's isolated and disposable. The no-mutating-commands rule protects the user's working tree, not the worktree.
-
----
-
-## `reconcile` — keep `plans/` alive
-
-Process what happened since the last session. Read `plans/README.md` and every plan file, then per status:
-
-- **DONE** — spot-check that the done criteria still hold on the current HEAD (cheap ones only). Mark verified in the index. Don't delete plan files — they're the record.
-- **BLOCKED** — read the reason. Investigate the underlying obstacle in the codebase. Either rewrite the plan around it (new number if the approach changed fundamentally, in-place refresh otherwise) or mark REJECTED with one line of rationale.
-- **IN PROGRESS** (stale) — flag it to the user; an executor probably died mid-run. Check the worktree if one exists.
-- **TODO** — run the drift check. If drifted: re-verify the finding still exists (it may have been fixed in passing), then refresh the "Current state" excerpts and `Planned at` SHA. If the finding is gone, mark REJECTED ("fixed independently").
-
-Finish with a short report: what's verified done, what was refreshed, what's rejected, and what's executable right now.
+在执行代理的 worktree 中运行验证命令是允许的，因为它隔离且可丢弃。禁止修改性命令的规则保护的是用户工作树，不是一次性 worktree。
 
 ---
 
-## `--issues` — publish plans as GitHub issues
+## `reconcile`——持续维护 `plans/`
 
-Modifier on any planning invocation (`/improve --issues`, `/improve security --issues`). The flag is the user's authorization to create issues — never create them without it.
+处理上次会话之后发生的变化。读取 `plans/README.md` 和所有计划文件，然后按状态处理：
 
-1. Preflight: `gh auth status` succeeds and the repo has a GitHub remote. If either fails, write the plan files as normal and say why issues were skipped.
-2. Visibility check: `gh repo view --json visibility`. If the repo is **public**, warn the user that issues are publicly visible and get explicit confirmation before publishing any plan that describes a security vulnerability, credential location, or other sensitive finding.
-3. Show the list of titles about to become issues; confirm once if interactive.
-4. Per plan: `gh issue create --title "<plan title>" --body-file <plan file>`. Labels: `improve` plus the category — apply only if the labels exist or can be created without erroring; skip labels rather than fail.
-5. Record each issue URL in the plan's Status block (`- **Issue**: <url>`) and the index.
+- **DONE**——在当前 HEAD 上抽查成本较低的完成标准，确认结果仍成立，并在索引中记录已验证。不要删除计划文件，它们是历史记录。
+- **BLOCKED**——读取阻塞原因，调查代码库中的真实障碍。可以绕开障碍重写计划：如果方法发生根本变化，使用新编号；如果只是刷新细节，则原地更新。无法解决时标记为 REJECTED，并用一句话说明理由。
+- **IN PROGRESS**（长期无更新）——提醒用户，执行代理可能中途终止。如果存在对应 worktree，应检查其状态。
+- **TODO**——运行漂移检查。如果发生漂移，先重新确认发现项是否仍存在，因为它可能已被其他改动顺带解决。仍存在时刷新“当前状态”摘录和 `Planned at` SHA；已经消失时标记 REJECTED，并注明“已由其他改动解决”。
 
-The plan file remains the source of truth; the issue is distribution. The self-containment rule pays off here — the issue body needs no edits to make sense to whoever (or whatever) picks it up.
+最后输出简短报告：哪些 DONE 已验证、哪些计划已刷新、哪些已拒绝，以及目前哪些计划可以立即执行。
+
+---
+
+## `--issues`——把计划发布为 GitHub Issue
+
+它可以附加到任何会生成计划的调用，例如 `/improve --issues`、`/improve security --issues`。该标志代表用户授权创建 Issue；没有明确标志时绝不能创建。
+
+1. 前置检查：`gh auth status` 必须成功，仓库必须配置 GitHub remote。任何一项失败，都应照常写计划文件，并说明为何跳过 Issue。
+2. 可见性检查：运行 `gh repo view --json visibility`。如果仓库为**公开仓库**，提醒用户 Issue 对所有人可见。对于描述安全漏洞、凭据位置或其他敏感发现项的计划，必须取得用户明确确认后再发布。
+3. 展示即将创建的 Issue 标题列表；在交互环境中统一确认一次。
+4. 对每份计划执行：`gh issue create --title "<plan title>" --body-file <plan file>`。标签使用 `improve` 加发现项类别；只有标签已经存在，或创建标签不会导致流程失败时才应用。标签处理失败时应跳过标签，而不是让整体失败。
+5. 把每个 Issue URL 写入计划的 Status 区块（`- **Issue**: <url>`）和索引。
+
+计划文件始终是事实来源，Issue 只是分发渠道。自包含规则在这里尤其重要：Issue 正文无需额外编辑，任何接手的人或代理都能理解并执行。

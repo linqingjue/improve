@@ -4,7 +4,7 @@
     "name": "shadcn"
   },
   "metadata": {
-    "description": "Claude marketplace catalog for the improve plugin."
+    "description": "improve 插件的 Claude 市场目录。"
   },
   "plugins": [
     {
